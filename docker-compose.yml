@@ -4,10 +4,13 @@ services:
     env_file:
       - .env
     ports:
-      - 8055:8000
-    command: uvicorn src.api:app --host 0.0.0.0 --port 8000
+      - 8033:8000
+    environment:
+      - TOR_ENABLED=true
+      - TOR_SOCKS_PROXY=socks5://tor:9050
+      - HEADLESS=false
+    command: ["/bin/sh", "-c", "xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' uvicorn src.api:app --host 0.0.0.0 --port 8000"]
 
-  # Tor SOCKS5 proxy for anonymous crawling
   tor:
     image: dperson/torproxy
     restart: unless-stopped

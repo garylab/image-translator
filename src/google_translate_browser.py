@@ -24,7 +24,7 @@ from PIL import Image
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
-from config import settings
+from src.config import settings
 
 DEFAULT_TIMEOUT_MS = 90000
 TRANSLATION_ERROR_MESSAGES = (

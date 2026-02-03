@@ -12,8 +12,8 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from config import settings
-from google_translate_browser import TranslationUiError, translate_image_google_async
+from src.config import settings
+from src.google_translate_browser import TranslationUiError, translate_image_google_async
 
 app = FastAPI(title="Image Translate Service", version="0.1.0")
 DEBUG_ERRORS = settings.debug_errors
