@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import traceback
+from contextlib import asynccontextmanager
 from io import BytesIO
 from typing import Optional
 
@@ -12,9 +13,25 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Header, UploadF
 from fastapi.responses import Response
 
 from src.config import settings
-from src.google_translate_browser import TranslationUiError, translate_image_google_async
+from src.google_translate_browser import (
+    TranslationUiError,
+    start_browser_pool,
+    stop_browser_pool,
+    translate_image_google_async,
+)
 
-app = FastAPI(title="Image Translate Service", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage browser pool lifecycle."""
+    logger.info("Starting browser pool...")
+    await start_browser_pool()
+    yield
+    logger.info("Stopping browser pool...")
+    await stop_browser_pool()
+
+
+app = FastAPI(title="Image Translate Service", version="0.1.0", lifespan=lifespan)
 DEBUG_ERRORS = settings.debug_errors
 
 

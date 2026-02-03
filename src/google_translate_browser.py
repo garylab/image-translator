@@ -15,18 +15,152 @@ import random
 import re
 import tempfile
 import time
+from contextlib import asynccontextmanager
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
+from loguru import logger
 from PIL import Image
 
+from playwright.async_api import Browser, BrowserContext, Playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
 from src.config import settings
 
 DEFAULT_TIMEOUT_MS = 90000
+
+
+class BrowserPool:
+    """Pool of reusable Chromium browser contexts."""
+
+    def __init__(self, pool_size: int = 2, headless: bool = True):
+        self._pool_size = pool_size
+        self._headless = headless
+        self._playwright: Optional[Playwright] = None
+        self._browser: Optional[Browser] = None
+        self._available: asyncio.Queue[BrowserContext] = asyncio.Queue()
+        self._semaphore: Optional[asyncio.Semaphore] = None
+        self._initialized = False
+        self._lock = asyncio.Lock()
+
+    async def start(self) -> None:
+        """Initialize the browser pool."""
+        async with self._lock:
+            if self._initialized:
+                return
+
+            logger.info(f"Starting browser pool with {self._pool_size} contexts")
+            self._playwright = await async_playwright().start()
+
+            use_tor = settings.tor_enabled
+            proxy_server = None
+            if use_tor:
+                proxy_server = (settings.tor_socks_proxy or "").strip()
+                if not proxy_server:
+                    raise ValueError("Tor is enabled but TOR_SOCKS_PROXY is empty.")
+
+            launch_options = _build_launch_options(self._headless, proxy_server)
+            self._browser = await self._playwright.chromium.launch(**launch_options)
+            self._semaphore = asyncio.Semaphore(self._pool_size)
+
+            # Pre-create contexts
+            for _ in range(self._pool_size):
+                context = await self._browser.new_context(
+                    accept_downloads=True, locale="en-US"
+                )
+                await self._available.put(context)
+
+            self._initialized = True
+            logger.info("Browser pool started")
+
+    async def stop(self) -> None:
+        """Shutdown the browser pool."""
+        async with self._lock:
+            if not self._initialized:
+                return
+
+            logger.info("Stopping browser pool")
+
+            # Close all contexts
+            while not self._available.empty():
+                try:
+                    context = self._available.get_nowait()
+                    await context.close()
+                except Exception:
+                    pass
+
+            if self._browser:
+                await self._browser.close()
+                self._browser = None
+
+            if self._playwright:
+                await self._playwright.stop()
+                self._playwright = None
+
+            self._initialized = False
+            logger.info("Browser pool stopped")
+
+    @asynccontextmanager
+    async def acquire(self):
+        """Acquire a browser context from the pool."""
+        if not self._initialized:
+            await self.start()
+
+        await self._semaphore.acquire()
+        context = None
+        try:
+            context = await self._available.get()
+            yield context
+        finally:
+            if context:
+                # Clean up: close all pages and return context to pool
+                try:
+                    for page in context.pages:
+                        await page.close()
+                    await self._available.put(context)
+                except Exception as e:
+                    logger.warning(f"Error returning context to pool: {e}")
+                    # Create a fresh context if the old one is broken
+                    try:
+                        if self._browser:
+                            new_context = await self._browser.new_context(
+                                accept_downloads=True, locale="en-US"
+                            )
+                            await self._available.put(new_context)
+                    except Exception:
+                        pass
+            self._semaphore.release()
+
+
+# Global browser pool instance
+_browser_pool: Optional[BrowserPool] = None
+
+
+async def get_browser_pool() -> BrowserPool:
+    """Get or create the global browser pool."""
+    global _browser_pool
+    if _browser_pool is None:
+        _browser_pool = BrowserPool(
+            pool_size=settings.browser_pool_size,
+            headless=settings.headless,
+        )
+    return _browser_pool
+
+
+async def start_browser_pool() -> None:
+    """Start the global browser pool."""
+    pool = await get_browser_pool()
+    await pool.start()
+
+
+async def stop_browser_pool() -> None:
+    """Stop the global browser pool."""
+    global _browser_pool
+    if _browser_pool:
+        await _browser_pool.stop()
+        _browser_pool = None
 TRANSLATION_ERROR_MESSAGES = (
     "Can't detect text",
     "Cannot detect text",
@@ -500,22 +634,10 @@ async def translate_image_google_async(
     temp_path = _write_temp_image(image_bytes)
     if download_path:
         download_path = _resolve_work_path(download_path)
-    use_tor = settings.tor_enabled
-    proxy_server = None
-    if use_tor:
-        proxy_server = (settings.tor_socks_proxy or "").strip()
-        if not proxy_server:
-            raise ValueError(
-                "Tor is enabled but TOR_SOCKS_PROXY is empty. "
-                "Set TOR_SOCKS_PROXY."
-            )
 
     try:
-        async with async_playwright() as playwright:
-            launch_options = _build_launch_options(headless, proxy_server)
-
-            browser = await playwright.chromium.launch(**launch_options)
-            context = await browser.new_context(accept_downloads=True, locale="en-US")
+        pool = await get_browser_pool()
+        async with pool.acquire() as context:
             page = await context.new_page()
             page.set_default_timeout(timeout_ms)
 

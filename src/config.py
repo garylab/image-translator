@@ -28,6 +28,7 @@ class Settings(BaseSettings):
         default=3.0, validation_alias="NATURAL_DELAY_MAX_S"
     )
     api_key: Optional[str] = Field(default=None, validation_alias="API_KEY")
+    browser_pool_size: int = Field(default=2, validation_alias="BROWSER_POOL_SIZE")
 
 
 settings = Settings()
