@@ -15,7 +15,7 @@ services:
     image: dperson/torproxy
     restart: unless-stopped
     environment:
-      - TOR_NewCircuit=10  # New circuit every 30 seconds for IP rotation
+      - TOR_NewCircuit=30  # New circuit every 30 seconds for IP rotation
     # ports:
     #   - 9050:9050  # SOCKS5 proxy (uncomment to expose externally)
     #   - 9051:9051  # Tor control port

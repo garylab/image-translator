@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     natural_delay_max_s: float = Field(
         default=3.0, validation_alias="NATURAL_DELAY_MAX_S"
     )
+    api_key: Optional[str] = Field(default=None, validation_alias="API_KEY")
 
 
 settings = Settings()

@@ -8,9 +8,8 @@ from typing import Optional
 from loguru import logger
 from PIL import Image
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Header, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel
 
 from src.config import settings
 from src.google_translate_browser import TranslationUiError, translate_image_google_async
@@ -19,9 +18,12 @@ app = FastAPI(title="Image Translate Service", version="0.1.0")
 DEBUG_ERRORS = settings.debug_errors
 
 
-class Base64Request(BaseModel):
-    image_base64: str
-    timeout_ms: int = 90000
+async def verify_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
+    """Verify API key if one is configured."""
+    if settings.api_key is None:
+        return
+    if x_api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 def _infer_format(image_bytes: bytes) -> str:
@@ -69,7 +71,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/translate")
+@app.post("/translate", dependencies=[Depends(verify_api_key)])
 async def translate(
     file: Optional[UploadFile] = File(default=None),
     timeout_ms: int = Form(default=90000),
@@ -103,35 +105,6 @@ async def translate(
 
     media_type = _infer_media_type(output_bytes)
     filename = _output_filename(file.filename if file else None, output_bytes)
-
-    return Response(
-        content=output_bytes,
-        media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-@app.post("/translate/base64")
-async def translate_base64(payload: Base64Request = Body(...)) -> Response:
-    try:
-        output_bytes = await translate_image_google_async(
-            image_base64=payload.image_base64,
-            headless=settings.headless,
-            timeout_ms=payload.timeout_ms,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except TranslationUiError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Translate failed")
-        detail = str(exc)
-        if DEBUG_ERRORS:
-            detail = f"{detail}\n{traceback.format_exc()}"
-        raise HTTPException(status_code=500, detail=detail) from exc
-
-    media_type = _infer_media_type(output_bytes)
-    filename = _output_filename(None, output_bytes)
 
     return Response(
         content=output_bytes,
