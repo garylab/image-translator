@@ -33,6 +33,21 @@ TRANSLATION_ERROR_MESSAGES = (
     "This language may not be supported",
 )
 
+def _build_launch_options(headless: bool, proxy_server: Optional[str]) -> dict:
+    launch_options = {
+        "headless": headless,
+        "channel": "chrome",
+        "args": [
+            "--disable-blink-features=AutomationControlled",
+            "--enable-webgl",
+            "--enable-gpu",
+            "--use-gl=angle",
+        ],
+    }
+    if proxy_server:
+        launch_options["proxy"] = {"server": proxy_server}
+    return launch_options
+
 
 class TranslationUiError(RuntimeError):
     pass
@@ -386,6 +401,8 @@ async def _wait_for_translation_ready(page, timeout_ms: int) -> None:
     raise RuntimeError("Timed out waiting for translation to finish.")
 
 
+
+
 async def _detect_translation_error(page) -> Optional[str]:
     try:
         body_text = await page.evaluate(
@@ -496,9 +513,7 @@ async def translate_image_google_async(
 
     try:
         async with async_playwright() as playwright:
-            launch_options = {"headless": headless}
-            if proxy_server:
-                launch_options["proxy"] = {"server": proxy_server}
+            launch_options = _build_launch_options(headless, proxy_server)
 
             browser = await playwright.chromium.launch(**launch_options)
             context = await browser.new_context(accept_downloads=True, locale="en-US")
@@ -507,7 +522,9 @@ async def translate_image_google_async(
 
             await _open_image_translate(page, timeout_ms)
 
-            await page.wait_for_selector("input[type=file]", state="attached", timeout=timeout_ms)
+            await page.wait_for_selector(
+                "input[type=file]", state="attached", timeout=timeout_ms
+            )
             await _natural_delay()
             file_input_index = await _pick_file_input(page)
             if file_input_index < 0:
