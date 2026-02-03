@@ -36,7 +36,6 @@ TRANSLATION_ERROR_MESSAGES = (
 def _build_launch_options(headless: bool, proxy_server: Optional[str]) -> dict:
     launch_options = {
         "headless": headless,
-        "channel": "chrome",
         "args": [
             "--disable-blink-features=AutomationControlled",
             "--enable-webgl",
