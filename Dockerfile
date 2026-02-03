@@ -17,6 +17,7 @@ ENV PATH="/root/.local/bin:$PATH"
 
 WORKDIR /workspace
 ENV PYTHONPATH="${PYTHONPATH}:."
+ENV PYTHONUNBUFFERED=1
 
 COPY pyproject.toml .
 COPY uv.lock .
@@ -26,4 +27,4 @@ RUN playwright install chromium --with-deps
 
 COPY src/ src/
 
-CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1920x1080x24", "uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" uvicorn src.api:app --host 0.0.0.0 --port 8000
