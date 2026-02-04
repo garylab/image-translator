@@ -75,10 +75,36 @@ def _infer_media_type(image_bytes: bytes) -> str:
     return "application/octet-stream"
 
 
+def _sanitize_filename(name: str) -> str:
+    """Sanitize filename to ASCII-safe characters for HTTP headers."""
+    # Replace common unicode spaces/dashes with ASCII equivalents
+    replacements = {
+        '\u202f': ' ',  # narrow no-break space
+        '\u00a0': ' ',  # non-breaking space
+        '\u2013': '-',  # en dash
+        '\u2014': '-',  # em dash
+        '\u2018': "'",  # left single quote
+        '\u2019': "'",  # right single quote
+        '\u201c': '"',  # left double quote
+        '\u201d': '"',  # right double quote
+    }
+    for unicode_char, ascii_char in replacements.items():
+        name = name.replace(unicode_char, ascii_char)
+    
+    # Remove any remaining non-ASCII characters
+    name = name.encode('ascii', 'ignore').decode('ascii')
+    
+    # Remove any characters that are problematic in filenames
+    name = ''.join(c for c in name if c not in '"\\')
+    
+    return name.strip() or "file"
+
+
 def _output_filename(original_name: Optional[str], image_bytes: bytes) -> str:
     ext = _infer_extension(image_bytes)
     if original_name:
         base = os.path.splitext(os.path.basename(original_name))[0]
+        base = _sanitize_filename(base)
         return f"{base}_translated{ext}"
     return f"translated{ext}"
 

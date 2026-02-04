@@ -285,6 +285,22 @@ async def _has_image_file_input(page) -> bool:
 
 
 async def _open_image_translate(page, timeout_ms: int) -> None:
+    # Try direct URL first (more reliable)
+    direct_url = "https://translate.google.com/?sl=auto&tl=en&op=images"
+    try:
+        await page.goto(direct_url, wait_until="domcontentloaded", timeout=min(30000, timeout_ms))
+        await _natural_delay()
+        await _dismiss_consent(page)
+        await _natural_delay()
+        
+        # Check if we're on the images page
+        if re.search(r"[?&]op=images", page.url) or await _has_image_file_input(page):
+            logger.debug("Successfully opened image translate via direct URL")
+            return
+    except Exception as e:
+        logger.debug(f"Direct URL navigation failed: {e}, trying fallback")
+
+    # Fallback: navigate to main page and click Images tab
     await page.goto("https://translate.google.com/", wait_until="domcontentloaded")
     await _natural_delay()
     await _dismiss_consent(page)
@@ -295,6 +311,8 @@ async def _open_image_translate(page, timeout_ms: int) -> None:
         page.get_by_role("button", name=re.compile(r"(image translation|images)", re.I)),
         page.locator("button[aria-label='Image translation']"),
         page.locator("button:has-text('Images')"),
+        page.locator("[data-value='images']"),
+        page.locator("a[href*='op=images']"),
     ]
 
     for locator in candidates:
@@ -321,6 +339,8 @@ async def _open_image_translate(page, timeout_ms: int) -> None:
     except Exception:
         pass
 
+    # Log current state for debugging
+    logger.warning(f"Failed to open image translate. Current URL: {page.url}")
     raise RuntimeError("Could not open image translate page.")
 
 
