@@ -1,0 +1,44 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Install cloudflared
+        run: |
+          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+          cloudflared --version
+
+      - name: SSH Login via Cloudflared
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          # Create SSH key
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          
+          # Add host to known_hosts (optional, to avoid prompt)
+          ssh-keyscan -t rsa mini.garymeng.com >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          # SSH through Cloudflared tunnel
+          # For Zero Trust, use the following connection method:
+          cloudflared access ssh-config --hostname mini.garymeng.com
+          
+          # Execute deployment commands via SSH
+          ssh -o ProxyCommand="cloudflared access ssh --hostname mini.garymeng.com" \
+              -o StrictHostKeyChecking=no \
+              -p 22 \
+              gary@mini.garymeng.com << 'EOF'
+          cd ~/docker_services/image-translator
+          git pull origin main
+          docker compose up -d --build --force-recreate --no-deps
+          EOF
